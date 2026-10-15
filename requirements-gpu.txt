@@ -1,0 +1,4 @@
+-r requirements.txt
+# CUDA 12.x example. Install ONE CuPy distribution matching your GPU environment.
+# See README for CUDA 13.x and Colab instructions.
+cupy-cuda12x>=13.4,<14

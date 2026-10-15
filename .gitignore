@@ -218,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local benchmark runs and datasets
+.DS_Store
+.idea/
+results/
+work/
+.mplconfig/
+.jupyter/
+data/*.mtx
+data/*.mtx.gz
+data/*.tar.gz
