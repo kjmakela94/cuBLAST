@@ -1,0 +1,15 @@
+{
+  "name": "gpu-kernels-hackathon-slides",
+  "private": true,
+  "description": "Builds slides/GPU_kernels_hackathon.pptx from results/<run>/",
+  "scripts": {
+    "build": "python3 make_matrix_figs.py ../../results/rtx5090 figs && node build_deck.js ../../results/rtx5090 ../GPU_kernels_hackathon.pptx"
+  },
+  "dependencies": {
+    "pptxgenjs": "^4.0.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-icons": "^5.0.0",
+    "sharp": "^0.33.0"
+  }
+}

@@ -1,0 +1,297 @@
+{
+  "env": {
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "compute_capability": "120",
+    "sm_count": 170,
+    "mem_gb": 31.4,
+    "l2_mb": 96.0,
+    "cuda_runtime": "12.9",
+    "cuda_driver": "13.0",
+    "cupy": "13.6.0",
+    "numpy": "2.3.2",
+    "scipy": "1.18.1",
+    "python": "3.12.3",
+    "cpu": "Intel(R) Xeon(R) Platinum 8470Q",
+    "cpu_cores_visible": 208,
+    "peak_source": "unknown card",
+    "peak_tflops": {},
+    "spec_bw_gbs": 1792.128,
+    "stream_bw_gbs": 1575.425645845684,
+    "h2d_gbs": 9.815950776652477,
+    "d2h_gbs": 1.5360817972733218
+  },
+  "pitfalls": {
+    "n": 4096,
+    "rows": [
+      {
+        "measurement": "1st call (cold)",
+        "seconds": 0.11334045231342316,
+        "TFLOP/s": 1.2126204780967051,
+        "impossible?": false
+      },
+      {
+        "measurement": "no synchronize (naive)",
+        "seconds": 7.03081488609314e-05,
+        "TFLOP/s": 1954.8083074104604,
+        "impossible?": false
+      },
+      {
+        "measurement": "synchronized (correct)",
+        "seconds": 0.002191058503479517,
+        "TFLOP/s": 62.72719475711838,
+        "impossible?": false
+      }
+    ]
+  },
+  "gemm_backends": [
+    {
+      "precision": "FP64",
+      "backend": "cublasGemmEx",
+      "rel_error": 0.0,
+      "note": "float64 \u2192 FP64 accumulate"
+    },
+    {
+      "precision": "FP32",
+      "backend": "cublasGemmEx",
+      "rel_error": 2.649393594808103e-07,
+      "note": "float32 \u2192 FP32 accumulate (CUDA cores)"
+    },
+    {
+      "precision": "TF32",
+      "backend": "cublasGemmEx",
+      "rel_error": 0.00029437879807012066,
+      "note": "float32 in/out, TF32 tensor-core multiply"
+    },
+    {
+      "precision": "FP16",
+      "backend": "cublasGemmEx",
+      "rel_error": 0.00036021864344370336,
+      "note": "float16 in/out \u2192 FP32 accumulate"
+    }
+  ],
+  "gemm_best_tflops": {
+    "FP16": 215.9613482409506,
+    "FP32": 66.33402870513413,
+    "FP64": 1.744397275074489,
+    "TF32": 116.85751530697935
+  },
+  "gemm_best_pct_peak": {
+    "FP16": NaN,
+    "FP32": NaN,
+    "FP64": NaN,
+    "TF32": NaN
+  },
+  "matrices": [
+    {
+      "matrix": "s3dkq4m2",
+      "source": "local file ../matrices/s3dkq4m2/s3dkq4m2.mtx",
+      "n": 90449,
+      "nnz": 4820891,
+      "nnz_per_row": 53.299550022664704,
+      "max_row": 54,
+      "csr_MB": 55.5157585144043,
+      "symmetric": true,
+      "read_s": 0.33963167294859886,
+      "note": "FEM cylindrical shell \u00b7 SPD \u00b7 ~53 nnz/row"
+    },
+    {
+      "matrix": "ecology2",
+      "source": "SYNTHETIC stand-in",
+      "n": 1000000,
+      "nnz": 4996000,
+      "nnz_per_row": 4.996,
+      "max_row": 5,
+      "csr_MB": 60.989383697509766,
+      "symmetric": true,
+      "read_s": 0.0,
+      "note": "5-point grid stencil \u00b7 ~5 nnz/row"
+    },
+    {
+      "matrix": "memplus",
+      "source": "local file ../matrices/memplus/memplus.mtx",
+      "n": 17758,
+      "nnz": 126150,
+      "nnz_per_row": 7.103840522581372,
+      "max_row": 574,
+      "csr_MB": 1.5114173889160156,
+      "symmetric": false,
+      "read_s": 0.017696265131235123,
+      "note": "memory circuit \u00b7 unsymmetric \u00b7 irregular rows"
+    }
+  ],
+  "backends": {
+    "spmv": "cusparseSpMV (pre-built descriptors)",
+    "blas1": "cuBLAS  (Ddot \u00b7 Daxpy \u00b7 Dscal)",
+    "gemm": {
+      "FP64": "cublasGemmEx",
+      "FP32": "cublasGemmEx",
+      "TF32": "cublasGemmEx",
+      "FP16": "cublasGemmEx"
+    }
+  },
+  "spmv": [
+    {
+      "matrix": "s3dkq4m2",
+      "source": "local file ../matrices/s3dkq4m2/s3dkq4m2.mtx",
+      "n": 90449,
+      "nnz": 4820891,
+      "bytes_MB": 56.89590072631836,
+      "cpu_ms": 2.4426523596048355,
+      "gpu_cold_ms": 0.06550399959087372,
+      "gpu_warm_ms": 0.04720491027832031,
+      "speedup": 37.2901254100697,
+      "gpu_GBs": 910.7791336807473,
+      "gpu_warm_GBs": 1263.8447070070965,
+      "cpu_GBs": 24.424137051435164,
+      "pct_stream": 57.811622914888105,
+      "pct_spec": 50.82109836355145,
+      "gpu_GFLOPs": 147.19379061157863,
+      "cpu_GFLOPs": 3.9472592004700235,
+      "h2d_ms": 37.25269436836243,
+      "breakeven_spmv": 15.671169286271905,
+      "rel_err": 3.756183049913605e-16,
+      "spmv_path": "cusparseSpMV (pre-built descriptors)"
+    },
+    {
+      "matrix": "ecology2",
+      "source": "SYNTHETIC stand-in",
+      "n": 1000000,
+      "nnz": 4996000,
+      "bytes_MB": 76.24817276000977,
+      "cpu_ms": 3.67799773812294,
+      "gpu_cold_ms": 0.07782399654388428,
+      "gpu_warm_ms": 0.05330078125,
+      "speedup": 47.260458232171985,
+      "gpu_GBs": 1027.3438470217313,
+      "gpu_warm_GBs": 1500.015611872481,
+      "cpu_GBs": 21.73791548898651,
+      "pct_stream": 65.21055752334513,
+      "pct_spec": 57.325361080331945,
+      "gpu_GFLOPs": 128.39227543866366,
+      "cpu_GFLOPs": 2.7166955260552714,
+      "h2d_ms": 10.890975594520569,
+      "breakeven_spmv": 3.0251250012572246,
+      "rel_err": 1.3526721629596952e-16,
+      "spmv_path": "cusparseSpMV (pre-built descriptors)"
+    },
+    {
+      "matrix": "memplus",
+      "source": "local file ../matrices/memplus/memplus.mtx",
+      "n": 17758,
+      "nnz": 126150,
+      "bytes_MB": 1.7823829650878906,
+      "cpu_ms": 0.08488819003105164,
+      "gpu_cold_ms": 0.016383999958634377,
+      "gpu_warm_ms": 0.011217011260986329,
+      "speedup": 5.18116395540611,
+      "gpu_GBs": 114.07251005363038,
+      "gpu_warm_GBs": 166.61871478193194,
+      "cpu_GBs": 22.016772878728396,
+      "pct_stream": 7.240742230801797,
+      "pct_spec": 6.365198805756642,
+      "gpu_GFLOPs": 15.399169960754165,
+      "cpu_GFLOPs": 2.9721448873831573,
+      "h2d_ms": 0.7860101759433746,
+      "breakeven_spmv": 11.47389926240229,
+      "rel_err": 3.5696528261484545e-16,
+      "spmv_path": "cusparseSpMV (pre-built descriptors)"
+    }
+  ],
+  "roofline": {
+    "peak64_gflops": 1744.397275074489,
+    "peak_label": "best observed FP64 GEMM",
+    "stream_bw": 1575.425645845684,
+    "ridge_flop_per_byte": 1.1072545884182947
+  },
+  "cg_validation": {
+    "cpu_its": 121,
+    "gpu_its": 121,
+    "cpu_err": 4.906407623958063e-12,
+    "gpu_err": 4.9064048089397235e-12,
+    "ok": true
+  },
+  "cg_crossover": {
+    "kernel_only": {
+      "kind": "at",
+      "n": 8043.73688493783
+    },
+    "end_to_end": {
+      "kind": "at",
+      "n": 9301.301448232909
+    },
+    "iters": 100
+  },
+  "cg_real": [
+    {
+      "matrix": "s3dkq4m2",
+      "source": "local file ../matrices/s3dkq4m2/s3dkq4m2.mtx",
+      "n": 90449,
+      "nnz": 4820891,
+      "iters": 500,
+      "converged": false,
+      "rel_residual": 2.2799784270996395e-05,
+      "cpu_s": 1.71814239397645,
+      "gpu_s": 0.058538101613521576,
+      "h2d_s": 0.006245160475373268,
+      "e2e_s": 0.05943967588245869,
+      "speedup": 29.35083896843659,
+      "speedup_e2e": 28.905648768577706,
+      "xfer_share": 0.10657374740896154,
+      "cpu_ms_it": 3.4362847879529,
+      "gpu_ms_it": 0.11707620322704315
+    },
+    {
+      "matrix": "ecology2",
+      "source": "SYNTHETIC stand-in",
+      "n": 1000000,
+      "nnz": 4996000,
+      "iters": 500,
+      "converged": false,
+      "rel_residual": 2.8008959517015105e-07,
+      "cpu_s": 6.1325722597539425,
+      "gpu_s": 0.06196574866771698,
+      "h2d_s": 0.008201941847801208,
+      "e2e_s": 0.07131725363433361,
+      "speedup": 98.96712928684262,
+      "speedup_e2e": 85.9900227117214,
+      "xfer_share": 0.1236419593848845,
+      "cpu_ms_it": 12.265144519507885,
+      "gpu_ms_it": 0.12393149733543396
+    }
+  ],
+  "config": {
+    "FAST": false,
+    "GEMM_SIZES": [
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096,
+      8192,
+      16384
+    ],
+    "CG_GRIDS": [
+      16,
+      32,
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048
+    ],
+    "CG_ITERS": 100,
+    "REAL_CG_ITERS": 500,
+    "matrices": [
+      "s3dkq4m2",
+      "ecology2",
+      "memplus"
+    ],
+    "sources": {
+      "s3dkq4m2": "local file ../matrices/s3dkq4m2/s3dkq4m2.mtx",
+      "ecology2": "SYNTHETIC stand-in",
+      "memplus": "local file ../matrices/memplus/memplus.mtx"
+    }
+  }
+}

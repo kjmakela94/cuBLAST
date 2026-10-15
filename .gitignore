@@ -1,9 +1,13 @@
-.cache/
-results/*
-!results/report.json
-!results/presentation.html
-.venv/
+# downloaded inputs and run outputs
+matrices/
+*.tar.gz
+hackathon_out/
+hackathon_results.zip
+# tooling
 __pycache__/
 .ipynb_checkpoints/
+node_modules/
+slides/src/package-lock.json
+*.pptx.tmp
 .DS_Store
-.idea/
+slides/src/figs/

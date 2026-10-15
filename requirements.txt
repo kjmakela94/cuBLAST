@@ -1,7 +1,11 @@
-numpy>=1.26,<3
-scipy>=1.12,<2
-matplotlib>=3.8,<4
-threadpoolctl>=3.2,<4
-jupyterlab>=4,<5
-nbclient>=0.10,<1
-nbconvert>=7,<8
+# Benchmarks (notebook / script). Pick the CuPy wheel matching your CUDA major version:
+#   cupy-cuda12x (CUDA 12) · cupy-cuda13x (CUDA 13) · cupy-cuda11x (CUDA 11)
+cupy-cuda12x>=13
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+matplotlib>=3.7
+jinja2>=3.1          # pandas table styling
+ipython>=8           # display() in the script version
+jupyter              # optional: run the notebook locally
+Pillow>=10           # slide equations (slides/src/make_formulas.py)

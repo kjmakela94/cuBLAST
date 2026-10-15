@@ -1,0 +1,4 @@
+measurement,seconds,TFLOP/s,impossible?
+1st call (cold),0.11334045231342316,1.2126204780967051,False
+no synchronize (naive),7.03081488609314e-05,1954.8083074104604,False
+synchronized (correct),0.002191058503479517,62.72719475711838,False

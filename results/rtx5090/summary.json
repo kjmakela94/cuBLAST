@@ -1,0 +1,297 @@
+{
+  "env": {
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "compute_capability": "120",
+    "sm_count": 170,
+    "mem_gb": 31.4,
+    "l2_mb": 96.0,
+    "cuda_runtime": "12.9",
+    "cuda_driver": "13.2",
+    "cupy": "13.6.0",
+    "numpy": "2.3.2",
+    "scipy": "1.18.1",
+    "python": "3.12.3",
+    "cpu": "Intel(R) Xeon(R) Platinum 8470Q",
+    "cpu_cores_visible": 208,
+    "peak_source": "unknown card",
+    "peak_tflops": {},
+    "spec_bw_gbs": 1792.128,
+    "stream_bw_gbs": 1575.907870128445,
+    "h2d_gbs": 9.859068359163915,
+    "d2h_gbs": 1.7312682382033127
+  },
+  "pitfalls": {
+    "n": 4096,
+    "rows": [
+      {
+        "measurement": "1st call (cold)",
+        "seconds": 0.10976358503103256,
+        "TFLOP/s": 1.2521361563868654,
+        "impossible?": false
+      },
+      {
+        "measurement": "no synchronize (naive)",
+        "seconds": 6.902208551764488e-05,
+        "TFLOP/s": 1991.2315375759686,
+        "impossible?": false
+      },
+      {
+        "measurement": "synchronized (correct)",
+        "seconds": 0.0022156152969751604,
+        "TFLOP/s": 62.0319572895334,
+        "impossible?": false
+      }
+    ]
+  },
+  "gemm_backends": [
+    {
+      "precision": "FP64",
+      "backend": "cublasGemmEx",
+      "rel_error": 0.0,
+      "note": "float64 \u2192 FP64 accumulate"
+    },
+    {
+      "precision": "FP32",
+      "backend": "cublasGemmEx",
+      "rel_error": 2.6527253584532176e-07,
+      "note": "float32 \u2192 FP32 accumulate (CUDA cores)"
+    },
+    {
+      "precision": "TF32",
+      "backend": "cublasGemmEx",
+      "rel_error": 0.00029349666000003615,
+      "note": "float32 in/out, TF32 tensor-core multiply"
+    },
+    {
+      "precision": "FP16",
+      "backend": "cublasGemmEx",
+      "rel_error": 0.0003597091060048032,
+      "note": "float16 in/out \u2192 FP32 accumulate"
+    }
+  ],
+  "gemm_best_tflops": {
+    "FP16": 215.07207396381895,
+    "FP32": 65.75837715566398,
+    "FP64": 1.7168948821130496,
+    "TF32": 116.47357297094847
+  },
+  "gemm_best_pct_peak": {
+    "FP16": NaN,
+    "FP32": NaN,
+    "FP64": NaN,
+    "TF32": NaN
+  },
+  "matrices": [
+    {
+      "matrix": "cant",
+      "source": "SYNTHETIC stand-in",
+      "n": 62451,
+      "nnz": 4058259,
+      "nnz_per_row": 64.98309074314263,
+      "max_row": 65,
+      "csr_MB": 46.68132400512695,
+      "symmetric": true,
+      "read_s": 0.0,
+      "note": "FEM cantilever \u00b7 banded \u00b7 ~64 nnz/row"
+    },
+    {
+      "matrix": "ecology2",
+      "source": "SYNTHETIC stand-in",
+      "n": 1000000,
+      "nnz": 4996000,
+      "nnz_per_row": 4.996,
+      "max_row": 5,
+      "csr_MB": 60.989383697509766,
+      "symmetric": true,
+      "read_s": 0.0,
+      "note": "5-point grid stencil \u00b7 ~5 nnz/row"
+    },
+    {
+      "matrix": "webbase-1M",
+      "source": "SYNTHETIC stand-in",
+      "n": 1000005,
+      "nnz": 1664883,
+      "nnz_per_row": 1.664874675626622,
+      "max_row": 315,
+      "csr_MB": 22.867794036865234,
+      "symmetric": false,
+      "read_s": 0.0,
+      "note": "web graph \u00b7 unsymmetric \u00b7 power-law rows"
+    }
+  ],
+  "backends": {
+    "spmv": "cusparseSpMV (pre-built descriptors)",
+    "blas1": "cuBLAS  (Ddot \u00b7 Daxpy \u00b7 Dscal)",
+    "gemm": {
+      "FP64": "cublasGemmEx",
+      "FP32": "cublasGemmEx",
+      "TF32": "cublasGemmEx",
+      "FP16": "cublasGemmEx"
+    }
+  },
+  "spmv": [
+    {
+      "matrix": "cant",
+      "source": "SYNTHETIC stand-in",
+      "n": 62451,
+      "nnz": 4058259,
+      "bytes_MB": 47.63425064086914,
+      "cpu_ms": 1.9561834633350372,
+      "gpu_cold_ms": 0.05529600009322167,
+      "gpu_warm_ms": 0.03795527648925781,
+      "speedup": 35.37658167023245,
+      "gpu_GBs": 903.2865291484758,
+      "gpu_warm_GBs": 1315.9733407326496,
+      "cpu_GBs": 25.53345989074305,
+      "pct_stream": 57.318485824609354,
+      "pct_spec": 50.40301413450803,
+      "gpu_GFLOPs": 146.7830943705989,
+      "cpu_GFLOPs": 4.149159908632699,
+      "h2d_ms": 23.45952019095421,
+      "breakeven_spmv": 12.3413514185347,
+      "rel_err": 3.7145861018537307e-16,
+      "spmv_path": "cusparseSpMV (pre-built descriptors)"
+    },
+    {
+      "matrix": "ecology2",
+      "source": "SYNTHETIC stand-in",
+      "n": 1000000,
+      "nnz": 4996000,
+      "bytes_MB": 76.24817276000977,
+      "cpu_ms": 3.3681364730000496,
+      "gpu_cold_ms": 0.07577600330114365,
+      "gpu_warm_ms": 0.0494151611328125,
+      "speedup": 44.448589609756,
+      "gpu_GBs": 1055.1098041191271,
+      "gpu_warm_GBs": 1617.9650570219533,
+      "cpu_GBs": 23.73775666185686,
+      "pct_stream": 66.95250554419339,
+      "pct_spec": 58.87468998414885,
+      "gpu_GFLOPs": 131.86232533656462,
+      "cpu_GFLOPs": 2.9666256341151094,
+      "h2d_ms": 36.93300299346447,
+      "breakeven_spmv": 11.217788372013251,
+      "rel_err": 1.353572731761404e-16,
+      "spmv_path": "cusparseSpMV (pre-built descriptors)"
+    },
+    {
+      "matrix": "webbase-1M",
+      "source": "SYNTHETIC stand-in",
+      "n": 1000005,
+      "nnz": 1664883,
+      "bytes_MB": 38.12665939331055,
+      "cpu_ms": 4.975024610757828,
+      "gpu_cold_ms": 0.043007999658584595,
+      "gpu_warm_ms": 0.02531395263671875,
+      "speedup": 115.67672642884217,
+      "gpu_GBs": 929.5642744923634,
+      "gpu_warm_GBs": 1579.3147981958982,
+      "cpu_GBs": 8.03587984540848,
+      "pct_stream": 58.9859529298879,
+      "pct_spec": 51.86930143898,
+      "gpu_GFLOPs": 77.42201512353675,
+      "cpu_GFLOPs": 0.6692963875595359,
+      "h2d_ms": 3.3635441213846207,
+      "breakeven_spmv": 0.6819815070807227,
+      "rel_err": 6.212193198138371e-16,
+      "spmv_path": "cusparseSpMV (pre-built descriptors)"
+    }
+  ],
+  "roofline": {
+    "peak64_gflops": 1716.8948821130496,
+    "peak_label": "best observed FP64 GEMM",
+    "stream_bw": 1575.907870128445,
+    "ridge_flop_per_byte": 1.0894639938393818
+  },
+  "cg_validation": {
+    "cpu_its": 121,
+    "gpu_its": 121,
+    "cpu_err": 4.906407623958063e-12,
+    "gpu_err": 4.9064048089397235e-12,
+    "ok": true
+  },
+  "cg_crossover": {
+    "kernel_only": {
+      "kind": "at",
+      "n": 10502.01728829364
+    },
+    "end_to_end": {
+      "kind": "at",
+      "n": 10941.534643106923
+    },
+    "iters": 100
+  },
+  "cg_real": [
+    {
+      "matrix": "cant",
+      "source": "SYNTHETIC stand-in",
+      "n": 62451,
+      "nnz": 4058259,
+      "iters": 23,
+      "converged": true,
+      "rel_residual": 4.781495389715252e-09,
+      "cpu_s": 0.061299363151192665,
+      "gpu_s": 0.0026823561638593674,
+      "h2d_s": 0.003985744901001453,
+      "e2e_s": 0.006802171468734741,
+      "speedup": 22.85280529748715,
+      "speedup_e2e": 9.011734478165815,
+      "xfer_share": 0.6016541306852784,
+      "cpu_ms_it": 2.665189702225768,
+      "gpu_ms_it": 0.1166241810373638
+    },
+    {
+      "matrix": "ecology2",
+      "source": "SYNTHETIC stand-in",
+      "n": 1000000,
+      "nnz": 4996000,
+      "iters": 500,
+      "converged": false,
+      "rel_residual": 2.8008959517015105e-07,
+      "cpu_s": 5.906986679881811,
+      "gpu_s": 0.06163741834461689,
+      "h2d_s": 0.007301885634660721,
+      "e2e_s": 0.06980383675545454,
+      "speedup": 95.83442717953645,
+      "speedup_e2e": 84.62266480531578,
+      "xfer_share": 0.11672077891538611,
+      "cpu_ms_it": 11.813973359763622,
+      "gpu_ms_it": 0.12327483668923378
+    }
+  ],
+  "config": {
+    "FAST": false,
+    "GEMM_SIZES": [
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096,
+      8192,
+      16384
+    ],
+    "CG_GRIDS": [
+      16,
+      32,
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048
+    ],
+    "CG_ITERS": 100,
+    "REAL_CG_ITERS": 500,
+    "matrices": [
+      "cant",
+      "ecology2",
+      "webbase-1M"
+    ],
+    "sources": {
+      "cant": "SYNTHETIC stand-in",
+      "ecology2": "SYNTHETIC stand-in",
+      "webbase-1M": "SYNTHETIC stand-in"
+    }
+  }
+}

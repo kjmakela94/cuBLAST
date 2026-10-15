@@ -1,0 +1,4 @@
+matrix,source,n,nnz,nnz_per_row,max_row,csr_MB,symmetric,read_s,note
+s3dkq4m2,local file ../matrices/s3dkq4m2/s3dkq4m2.mtx,90449,4820891,53.299550022664704,54,55.5157585144043,True,0.33963167294859886,FEM cylindrical shell · SPD · ~53 nnz/row
+ecology2,SYNTHETIC stand-in,1000000,4996000,4.996,5,60.989383697509766,True,0.0,5-point grid stencil · ~5 nnz/row
+memplus,local file ../matrices/memplus/memplus.mtx,17758,126150,7.103840522581372,574,1.5114173889160156,False,0.017696265131235123,memory circuit · unsymmetric · irregular rows
