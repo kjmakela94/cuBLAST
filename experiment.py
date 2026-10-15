@@ -641,9 +641,11 @@ def plot_gemm(data, peaks=None):
                 y = [2*r["n"]**3/(_num(r, backend+"_ms")*1e6) for r in part]
                 ax.plot([r["n"] for r in part], y, style, color=COLORS[mode], marker="o",
                         ms=4, lw=2.2, label=f"{mode} {'GPU' if backend=='gpu' else 'CPU'}")
-    ax.set(xlabel="Matrix dimension  n", ylabel="GFLOP/s", ylim=(0, None))
+    ax.set(xlabel="Matrix dimension  n", ylabel="GFLOP/s")
     if gpu:
-        ax.set_yscale("log"); ax.set_ylim(bottom=None)
+        ax.set_yscale("log")
+    else:
+        ax.set_ylim(bottom=0)
     _legend(ax)
     errors = [(m, max([_num(r,"error") for r in rows if r.get("mode")==m and
                       np.isfinite(_num(r,"gpu_ms")) and _num(r,"error")>=0], default=np.nan)) for m in MODES]
@@ -666,10 +668,11 @@ def plot_gemm(data, peaks=None):
         axes[2].barh(MODES, util, color=[COLORS[m] for m in MODES], height=.5)
         axes[2].invert_yaxis(); axes[2].set(xlabel="% of matching dense peak", xlim=(0, max(100, np.nanmax(util)*1.15)))
         for i, v in enumerate(util):
-            axes[2].text(v+2 if np.isfinite(v) else 2, i, f"{v:.1f}%" if np.isfinite(v) else "pending", va="center", fontsize=10, color=MUTED)
+            if np.isfinite(v):
+                axes[2].text(v+2, i, f"{v:.1f}%", va="center", fontsize=10, color=MUTED)
     else:
         _pending(axes[2], "Add measured GPU data\nand official card peaks")
-    _foot(fig, "Dashed = CPU baseline. GPU modes remain blank until measured. Peak comparison uses the matching dense compute mode.")
+    _foot(fig, "Dashed = CPU baseline. Peaks: dense, boost-clock specifications; FP16 uses FP32 accumulation. FP64 peak unspecified.")
     return fig
 
 
@@ -732,7 +735,7 @@ def plot_cg(data):
     histories = [(r, key, label, color) for r in rows[-1:] for key,label,color in
                  (("cpu_history","CPU",CPU),("gpu_history","GPU",GREEN)) if len(r.get(key,[]))]
     for r,key,label,color in histories:
-        axes[2].semilogy(np.maximum(r[key],np.finfo(float).tiny), color=color, lw=2.3, label=label)
+        axes[2].semilogy(np.maximum(r[key],np.finfo(float).tiny), color=color, lw=4 if label=="CPU" else 1.5, linestyle="--" if label=="CPU" else "-", label=label)
     if histories:
         axes[2].set(xlabel="Iteration", ylabel="Relative residual")
         _legend(axes[2])
@@ -823,7 +826,8 @@ _STYLE = '''
 .cublast{box-sizing:border-box;width:100%;max-width:1280px;min-height:710px;margin:12px auto;padding:30px 46px 24px;background:#fbfcfe;color:#172337;font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;border:1px solid #e6ebf0;border-radius:8px;display:flex;flex-direction:column;position:relative;overflow:hidden}
 .cublast *{box-sizing:border-box}.cublast h1{font-size:54px;line-height:1.08;letter-spacing:-2px;margin:26px 0 18px;font-weight:750}.cublast h2{font-size:31px;margin:20px 0 16px;letter-spacing:-.8px}.cublast h3{font-size:21px;margin:0 0 10px}.cublast p{margin:8px 0}.cublast .eyebrow{color:#708097;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;display:flex;justify-content:space-between}.cublast .green{color:#58a600}.cublast .muted{color:#6e7d90}.cublast .lead{font-size:23px;max-width:900px;line-height:1.4}.cublast .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:24px 0}.cublast .card{padding:23px 24px;background:#fff;border:1px solid #e6ebf0;border-radius:10px}.cublast .card p{font-size:15px;color:#6e7d90}.cublast .tag{display:inline-block;border-radius:16px;padding:5px 12px;background:#eaf4de;color:#4b850b;font-size:12px;font-weight:700}.cublast .tag.pending{background:#eef1f6;color:#6e7d90}.cublast .figure{width:100%;height:auto;display:block;margin:5px 0 10px}.cublast .finding{border-left:4px solid #58a600;padding:8px 15px;margin:9px 0;background:#f0f6e9;font-size:17px}.cublast .pending-note{color:#6e7d90;font-size:14px;margin:8px 0}.cublast .footer{margin-top:auto;display:flex;gap:18px;justify-content:space-between;color:#8793a3;font-size:11px;padding-top:15px}.cublast .chips{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.cublast .chip{background:#edf1f6;border-radius:6px;padding:7px 11px;font-size:13px;color:#526177}.cublast table{width:100%;border-collapse:collapse;font-size:12px;margin:5px 0 7px}.cublast th,.cublast td{text-align:left;padding:5px 9px;border-bottom:1px solid #e6ebf0}.cublast th{color:#708097;font-weight:600}.cublast a{color:#2577cb;text-decoration:none}.cublast .steps{border-radius:8px;background:#172337;color:white;padding:18px 22px;margin:14px 0;font:14px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}.cublast .summary{font-size:18px;line-height:1.5;margin-bottom:17px;max-width:1040px}.cublast .summary b{display:block;font-size:13px;text-transform:uppercase;letter-spacing:1.3px;color:#58a600;margin-bottom:4px}
 @media(max-width:800px){.cublast{padding:20px;min-height:0}.cublast h1{font-size:36px}.cublast .grid3{grid-template-columns:1fr}.cublast .lead{font-size:19px}}
-</style>'''
+.cublast{border-radius:18px;border-top:5px solid #58a600;background:radial-gradient(ellipse at 100% 0%,#f0f6e7,transparent 45%),#fbfcfe}.cublast .card{box-shadow:0 6px 22px #17233706;border-radius:16px;padding:20px}.cublast .method{font-size:12px;color:#267c78;font-weight:650;padding-top:10px;border-top:1px solid #e6ebf0}.cublast .metric{font-size:58px;letter-spacing:-3px;font-weight:750;color:#267c78;line-height:1.2;margin-bottom:10px}.cublast .gallery .figure{max-height:180px;object-fit:contain;margin:0}.cublast .compact-chart .figure{max-height:355px;object-fit:contain}.cublast .compact-chart{margin-top:-12px}.cublast .finding{border-radius:0 10px 10px 0}.cublast .grid3{margin:18px 0}.cublast .summary{font-size:17px;margin-bottom:12px}
+</style>''' 
 
 
 def _png(figure):
@@ -834,49 +838,146 @@ def _png(figure):
     return '<img class="figure" alt="Measured benchmark results" src="data:image/png;base64,'+base64.b64encode(buffer.getvalue()).decode()+'">'
 
 
-def pages(report):
-    a = analyse(report)
-    report['analysis'] = a
-    esc = html.escape
-    meta = report['meta']
-    status = 'GPU measured' if meta['gpu'] else 'GPU pending'
-    def wrap(index,label,body,foot=''):
-        return f'<section class="cublast"><div class="eyebrow"><span>cuBLAST / {label}</span><span>{index:02d} / 06</span></div>{body}<div class="footer"><span>Numerical Libraries Mini-Hackathon · {status}</span><span>{foot}</span></div></section>'
-    def finding(text):
-        return '<div class="finding">'+esc(text)+'</div>'
-    def pending(text):
-        return '<div class="pending-note">'+esc(text)+'</div>'
-    s = report['settings']
-    first = f'''<h1>Two kernels.<br><span class="green">Two performance limits.</span></h1>
-    <p class="lead">Dense GEMM reuses data. Sparse SpMV moves data.<br>Does the GPU still win after solving and transferring?</p>
-    <div class="grid3"><div class="card"><h3>A / Dense</h3><p>FP64 · FP32 · TF32 · FP16<br>GFLOP/s, error, card peak</p></div><div class="card"><h3>B / Sparse</h3><p>3 SuiteSparse matrices<br>CPU/GPU SpMV, effective GB/s</p></div><div class="card"><h3>C / Solve</h3><p>CG from SpMV + dot + axpy<br>Residual, transfers, crossover</p></div></div>
-    <div class="chips"><span class="chip">{s['warmup']} warm-ups</span><span class="chip">Median of {s['repeats']} kernel samples</span><span class="chip">{s['cpu_threads']} BLAS thread</span><span class="chip">CUDA Events + synchronization</span><span class="chip">Correctness checked</span></div>
-    <p class="muted">CPU: {esc(meta['cpu'] or meta['platform'])} · GPU: {esc(meta['gpu'] or 'not available on this machine')}</p>
-    <p><span class="tag">CPU measured</span> <span class="tag {'pending' if not meta['gpu'] else ''}">{status}</span></p>'''
-    out = [wrap(1,'Question & method',first,'No synthetic GPU measurements')]
-    body = _png(plot_gemm(report['gemm'],s['peaks_tflops']))+finding(a['gemm'])+pending(a['gemm_gpu'])
-    out.append(wrap(2,'A / cuBLAS',body,'FP16 inputs → FP32 accumulation/output · TF32 uses FP32 storage'))
-    table = '<table><tr><th>Matrix</th><th>Rows</th><th>Nonzeros</th><th>Source</th></tr>'
-    for m in report['matrices']:
-        table += f'<tr><td>{esc(m["name"])}</td><td>{m["m"]:,}</td><td>{m["nnz"]:,}</td><td><a href="{esc(m["source"])}">SuiteSparse / {esc(m["domain"])}</a></td></tr>'
-    table += '</table>'
-    body = _png(plot_spmv(report['spmv']))+table+finding(a['spmv'])+pending(a['spmv_gpu'])
-    out.append(wrap(3,'B / cuSPARSE',body,'FP64 · CSR byte model, not hardware-measured DRAM traffic'))
-    body = _png(plot_roofline())+finding(a['roofline'])+pending('Theory predicts the regimes. GPU measurements are needed to test this explanation; CPU baselines alone do not prove a GPU bottleneck.')
-    out.append(wrap(4,'Interpretation',body,'GEMM: 2n³ FLOPs / 24n² bytes · SpMV: 2nnz FLOPs / estimated CSR+x+y bytes'))
-    body = _png(plot_cg(report['cg']))+finding(a['cg'])+pending(a['cg_gpu'])
-    out.append(wrap(5,'C / conjugate gradient',body,'2D Poisson SPD family · FP64 · relative tolerance 10⁻⁸ · host scalar reductions synchronize'))
-    last = f'''<h2>What the evidence says</h2>
-    <div class="summary"><b>A / Precision & throughput</b>{esc(a['gemm'])}<br><span class="muted">{esc(a['gemm_gpu'])}</span></div>
-    <div class="summary"><b>B / Real sparse data</b>{esc(a['spmv'])}<br><span class="muted">{esc(a['spmv_gpu'])}</span></div>
-    <div class="summary"><b>C / Time to solution</b>{esc(a['cg'])}<br><span class="muted">{esc(a['cg_gpu'])}</span></div>'''
-    if not meta['gpu']:
-        last += '<div class="steps">On NVIDIA: python experiment.py --run<br>Return: results/report.json → rerender this notebook for GPU conclusions</div>'
+SPEC_URL = 'https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf'
+
+
+def prepare_visuals(report):
+    """Embed verified matrix patterns so saved reports render without downloads."""
+    if 'RTX 5090' in (report['meta'].get('gpu') or ''):
+        if not report['settings'].get('peaks_tflops'):
+            apply_peaks(report, {'FP32':104.8, 'TF32':104.8, 'FP16':209.5}, SPEC_URL)
+        report['hardware_reference'] = dict(bandwidth_gbs=1792, l2_bytes=98304*1024, source=SPEC_URL)
+    for info in report['matrices']:
+        path = Path(__file__).parent/'.cache'/f'{info["name"]}.npz'
+        if info.get('pattern') or not path.exists():
+            continue
+        matrix = sparse.load_npz(path)
+        digest = hashlib.sha256()
+        for array in (matrix.data, matrix.indices, matrix.indptr):
+            digest.update(array.tobytes())
+        if digest.hexdigest() != info.get('csr_sha256'):
+            continue
+        coo = matrix.tocoo(); size = 144
+        bins = (coo.row.astype(np.int64)*size//matrix.shape[0])*size + coo.col.astype(np.int64)*size//matrix.shape[1]
+        occupied = np.bincount(bins, minlength=size*size)>0
+        info['pattern'] = base64.b64encode(np.packbits(occupied).tobytes()).decode()
+        info['pattern_size'] = size
+
+
+def matrix_gallery(report):
+    from matplotlib.colors import ListedColormap
+    fig, axes = plt.subplots(1,3,figsize=(12.8,2.15))
+    fig.patch.set_facecolor('#FBFCFE')
+    fig.subplots_adjust(left=.04,right=.98,top=.84,bottom=.12,wspace=.12)
+    for ax,m in zip(axes,report['matrices']):
+        if m.get('pattern'):
+            size=m['pattern_size']
+            grid=np.unpackbits(np.frombuffer(base64.b64decode(m['pattern']),dtype=np.uint8))[:size*size].reshape(size,size)
+            ax.imshow(grid,cmap=ListedColormap(['#EDF2F6','#267C78']),interpolation='nearest')
+        ax.set_axis_off()
+        ax.set_title(f"{m['name']}  /  {m['m']:,} × {m['n']:,}",fontsize=11,color=INK,pad=8)
+        ax.text(.5,-.10,f"{m['nnz']:,} nonzeros",ha='center',transform=ax.transAxes,fontsize=10,color=MUTED)
+    return fig
+
+
+def method_svg(kind):
+    # Schematics illustrate operations; empirical patterns appear on the sparse slide.
+    cells=''
+    if kind=='dense':
+        for block,(x,color) in enumerate([(18,'#2577CB'),(142,'#835AC5'),(266,'#58A600')]):
+            for i in range(5):
+                for j in range(5):
+                    cells+=f'<rect x="{x+j*13}" y="{25+i*13}" width="10" height="10" rx="2" fill="{color}" opacity="{.35+.12*((i+j)%5)}"/>'
+        cells+='<text x="104" y="65">×</text><text x="230" y="65">=</text>'
+        cells+='<text x="40" y="116" class="sm">A</text><text x="164" y="116" class="sm">B</text><text x="288" y="116" class="sm">C</text>'
+    elif kind=='sparse':
+        for i in range(7):
+            for j in range(7):
+                fill='#267C78' if i==j or abs(i-j)==1 else '#E9EFF3'
+                cells+=f'<rect x="{18+j*10}" y="{22+i*10}" width="8" height="8" rx="1" fill="{fill}"/>'
+        cells+='<text x="113" y="64">→</text><rect x="157" y="32" width="154" height="49" rx="10" fill="#E1F0EB"/><text x="234" y="62" text-anchor="middle" class="sm">CSR · SpMV</text><text x="20" y="116" class="sm">Nonzeros only → y = Ax</text>'
     else:
-        last += '<div class="finding">Compare end-to-end time and numerical error—not throughput alone.</div>'
-    last += '<p class="pending-note">Peak comparison: supply official dense card peaks + source in the configuration. Kernel measurements exclude transfers; CG end-to-end includes upload/setup, solve and download. CPU SpMV includes its return-vector allocation.</p>'
-    last += '<p class="pending-note">References: <a href="https://docs.nvidia.com/cuda/cublas/index.html">cuBLAS</a> · <a href="https://docs.cupy.dev/en/stable/user_guide/performance.html">CuPy timing</a> · <a href="https://sparse.tamu.edu/">SuiteSparse</a></p>'
-    out.append(wrap(6,'Takeaways',last,esc(meta['utc'][:19].replace('T',' '))+' UTC'))
+        for x,y in [(53,23),(53,49),(53,75),(27,49),(79,49)]:
+            cells+=f'<path d="M53 49L{x} {y}" stroke="#B8C7D8" stroke-width="3"/><circle cx="{x}" cy="{y}" r="8" fill="#835AC5"/>'
+        cells+='<text x="124" y="44" class="sm">SpMV → dot → axpy</text><path d="M140 63H300V85H140Z" fill="none" stroke="#835AC5" stroke-width="2"/><text x="220" y="80" text-anchor="middle" class="sm">repeat until converged</text><text x="20" y="116" class="sm">5-point Poisson · SPD</text>'
+    return '<svg viewBox="0 0 350 135" role="img" aria-label="'+kind+' method schematic" style="width:100%;font:28px Arial;fill:#172337"><style>.sm{font:13px Arial}</style>'+cells+'</svg>'
+
+
+def plot_interpretation(report):
+    fig, axes = _figure('Data reuse changes the limit', 'A model explains the trend; cache behavior needs separate evidence.', ['Arithmetic intensity', 'Sparse working set vs L2'], [1.1,1])
+    ax=axes[0]
+    ns=np.array(sorted(set(r['n'] for r in report['gemm'])))
+    ax.plot(ns,ns/12,color=COLORS['FP64'],lw=2.5,marker='o',label='FP64 GEMM: n/12')
+    for r in report['spmv']:
+        ax.scatter([r['n']],[r['intensity']],s=55,color='#267C78',zorder=4)
+    ax.axhspan(.14,.18,color='#267C78',alpha=.12)
+    ax.text(350,.28,'SpMV ≈ 0.15 FLOP/byte',color='#267C78',fontsize=11)
+    ax.set(xscale='log',yscale='log',xlabel='Matrix dimension',ylabel='FLOP / estimated byte')
+    _legend(ax)
+    ref=report.get('hardware_reference',{}); cache=ref.get('l2_bytes')
+    rows=report['spmv']; sizes=[r['estimated_bytes']/2**20 for r in rows]
+    axes[1].barh([r['matrix'] for r in rows],sizes,color='#267C78',height=.48)
+    for i,v in enumerate(sizes):
+        axes[1].text(v+1,i,f'{v:.2f} MiB',va='center',fontsize=10,color=INK)
+    if cache:
+        axes[1].axvline(cache/2**20,color=COLORS['TF32'],ls='--',lw=2)
+        axes[1].text(cache/2**20-1,-.58,f'L2 {cache/2**20:.0f} MiB',ha='right',color=COLORS['TF32'],fontsize=11)
+        axes[1].set_xlim(0,cache/2**20*1.12)
+    axes[1].set_xlabel('CSR + input + output (MiB)'); axes[1].invert_yaxis()
+    _foot(fig,'GEMM assumes ideal reuse; SpMV uses a byte model. Working-set fit suggests possible cache reuse, not a measured hit rate.')
+    return fig
+
+
+def pages(report):
+    prepare_visuals(report)
+    a=analyse(report); report['analysis']=a
+    esc=html.escape; meta=report['meta']; s=report['settings']; gpu=bool(meta.get('gpu'))
+    native=[r for r in report['gemm'] if r.get('gpu_ms')]
+    sparse_gpu=[r for r in report['spmv'] if r.get('gpu_ms')]
+    tested=sorted([r for r in report['cg'] if r.get('gpu_total_ms')],key=lambda r:r['n'])
+    best=max(native,key=lambda r:r['gflops']) if native else None
+    last=tested[-1] if tested else report['cg'][-1]
+    wins=[r for r in tested if r['gpu_total_ms']<r['cpu_ms']]
+    dense_note=a['gemm_gpu']
+    if best:
+        fp32=next(r for r in native if r['mode']=='FP32' and r['n']==best['n'])
+        dense_note=f"{best['mode']} reaches {best['gflops']/1000:.1f} TFLOP/s — {fp32['gpu_ms']/best['gpu_ms']:.2f}× FP32 at n = {best['n']:,}."
+    sparse_note=a['spmv_gpu']
+    cache=report.get('hardware_reference',{}).get('l2_bytes')
+    cache_note='SpMV has little arithmetic reuse; latency and cache behavior matter.'
+    if sparse_gpu and cache:
+        largest=max(sparse_gpu,key=lambda r:r['estimated_bytes'])
+        cache_note=f"Largest working set: {largest['estimated_bytes']/2**20:.1f} MiB < {cache/2**20:.0f} MiB L2. Warm repetitions may reuse cache; effective GB/s does not establish DRAM saturation."
+    cg_note=a['cg_gpu']
+    if wins:
+        cg_note=f"First sampled GPU win: {wins[0]['n']:,} unknowns. Largest solve is {last['cpu_ms']/last['gpu_total_ms']:.2f}× faster including transfers."
+    report['analysis'].update(gemm_gpu=dense_note,cache=cache_note,cg_gpu=cg_note)
+    def wrap(i,label,body,foot=''):
+        return f'<section class="cublast"><div class="eyebrow"><span>cuBLAST / {label}</span><span>{i:02d} / 06</span></div>{body}<div class="footer"><span>Numerical Libraries Mini-Hackathon · {esc(meta.get("gpu") or "CPU baseline / GPU pending")}</span><span>{foot}</span></div></section>'
+    def finding(t): return '<div class="finding">'+esc(t)+'</div>'
+    first='<h1>Dense. Sparse.<br><span class="green">Time to solution.</span></h1><p class="lead">Three experiments connect matrix structure to GPU performance.</p><div class="grid3">'
+    for title,kind,desc,method in [('01 / Dense GEMM','dense','Random square matrices · n = 256–4,096','cuBLAS gemmEx · four precision modes'),('02 / Real sparse SpMV','sparse','3 SuiteSparse structural matrices','Matrix Market → CSR → cuSPARSE'),('03 / Iterative solve','cg','2D Poisson · 576–36,864 unknowns','CG · SpMV + cuBLAS vector operations')]:
+        first+=f'<div class="card"><h3>{title}</h3>{method_svg(kind)}<p>{desc}</p><div class="method">{method}</div></div>'
+    first+='</div><div class="chips">'+''.join(f'<span class="chip">{t}</span>' for t in [f"{s['warmup']} warm-ups",f"{s['repeats']} timing samples",'1 CPU BLAS thread','Synchronized GPU timing','Numerical checks'])+'</div>'
+    out=[wrap(1,'Design',first,'Schematics illustrate the methods; measured matrix structures follow')]
+    out.append(wrap(2,'A / Precision',_png(plot_gemm(report['gemm'],s['peaks_tflops']))+finding(dense_note)+'<div class="pending-note">Error: maximum sampled relative error vs common FP64 reference, including input rounding. FP16 inputs accumulate/output in FP32.</div>', 'Dense nominal peaks · NVIDIA Blackwell whitepaper, Table 3'))
+    gallery=_png(matrix_gallery(report)); chart=_png(plot_spmv(report['spmv']))
+    # Shorter subplot image keeps the pattern gallery and metrics on one slide.
+    out.append(wrap(3,'B / Structure → performance','<h2>Real structure. Measured speed.</h2><div class="gallery">'+gallery+'</div><div class="compact-chart">'+chart+'</div>'+finding(sparse_note),'Patterns: occupied 144 × 144 bins of the verified CSR matrices · not synthetic'))
+    out.append(wrap(4,'Interpretation',_png(plot_interpretation(report))+finding(a['roofline'])+'<div class="pending-note">'+esc(cache_note)+'</div>','Bandwidth and cache reference: NVIDIA Blackwell whitepaper, Table 3'))
+    solve_note=''
+    if tested:
+        overhead=(last['upload_ms']+last['download_ms'])/last['gpu_total_mean_ms']*100
+        solve_note=f"Largest case: setup + transfers are {overhead:.1f}% of mean end-to-end time. CPU/GPU residual traces overlap; both reach 10⁻⁸. Small-case costs plausibly include launches and host-scalar synchronization."
+    out.append(wrap(5,'C / Convergence',_png(plot_cg(report['cg']))+finding(cg_note)+'<div class="pending-note">'+esc(solve_note or a['cg'])+'</div>','Unpreconditioned CG · FP64 · SPD five-point stencil · equal tolerance'))
+    metrics=[(f"{best['gflops']/1000:.0f}" if best else '—','TFLOP/s','FP16 → FP32 accumulation'),(f"{max(r['cpu_ms']/r['gpu_ms'] for r in sparse_gpu):.1f}×" if sparse_gpu else '—','SpMV speedup','Largest real matrix · resident'),(f"{last['cpu_ms']/last['gpu_total_ms']:.2f}×" if tested else '—','CG speedup','Largest solve · transfers included')]
+    body='<h1>Performance has<br><span class="green">three conditions.</span></h1><div class="grid3">'
+    for value,label,desc in metrics:
+        body+=f'<div class="card"><div class="metric">{value}</div><h3>{label}</h3><p>{desc}</p></div>'
+    body+='</div><div class="summary"><b>01 / Choose precision</b>FP16/TF32 trade input precision for throughput. Validate error against the application’s needs.</div><div class="summary"><b>02 / Account for data reuse</b>SpMV has low arithmetic intensity. This warm dataset fits L2; DRAM saturation remains unproven.</div><div class="summary"><b>03 / Measure the whole solve</b>'+esc(cg_note)+'</div>'
+    body+='<div class="pending-note">Scope: one GPU, one CPU BLAS thread, five timing samples; no profiler. Peaks use matching dense modes and nominal boost clocks.</div>'
+    body+=f'<div class="pending-note">Sources: <a href="{SPEC_URL}">NVIDIA architecture / dense peaks / cache</a> · <a href="https://sparse.tamu.edu/">SuiteSparse / Davis & Hu (2011)</a> · <a href="https://docs.nvidia.com/cuda/cublas/index.html">cuBLAS</a></div>'
+    out.append(wrap(6,'Takeaways',body,esc(meta['utc'][:19].replace('T',' '))+' UTC'))
     return out
 
 

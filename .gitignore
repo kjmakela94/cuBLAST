@@ -1,5 +1,7 @@
 .cache/
-results/
+results/*
+!results/report.json
+!results/presentation.html
 .venv/
 __pycache__/
 .ipynb_checkpoints/

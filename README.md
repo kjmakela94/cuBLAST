@@ -48,3 +48,9 @@ Datasets: [SuiteSparse, CC-BY 4.0](https://sparse.tamu.edu/about), Davis & Hu (2
 [doi:10.1145/2049662.2049663](https://doi.org/10.1145/2049662.2049663).
 The report records source links, CSR hashes and preprocessing; cached arrays are
 derived from the original Matrix Market files and are not committed.
+
+## Presentation
+
+Six visual pages: experiment design, precision, real matrix patterns, data reuse, CG, and takeaways. Matrix thumbnails show occupied 144 × 144 bins from hash-verified CSR data. Saved reports embed these patterns for offline rendering.
+
+RTX 5090 nominal dense peaks are sourced from [NVIDIA Blackwell, Table 3](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf): FP32/TF32 104.8 TFLOP/s; FP16 with FP32 accumulation 209.5 TFLOP/s. FP64 peak is left unspecified. Warm SpMV working sets fit the specified 96 MiB L2; effective bandwidth is not measured DRAM traffic.
