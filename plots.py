@@ -8,6 +8,13 @@ from benchmark import speedups
 
 COLORS = {("CPU", "float32"): "#52677f", ("CPU", "float64"): "#a3afbd",
           ("GPU", "float32"): "#4f9900", ("GPU", "float64"): "#99c94c"}
+MODE_COLORS = {"FP64": "#99c94c", "FP32": "#4f9900", "TF32": "#2583b8", "FP16": "#9461c9"}
+
+
+def _gemm_color(backend, mode):
+    if backend == "CPU":
+        return COLORS[("CPU", "float64" if mode == "FP64" else "float32")]
+    return MODE_COLORS[mode]
 
 
 def _style():
@@ -25,23 +32,27 @@ def _empty(ax, message):
 
 def plot_gemm(results):
     _style()
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.4), layout="constrained")
-    fig.suptitle("GEMM | FP32 and FP64 baseline", fontsize=16, fontweight="bold")
+    fig, axes = plt.subplots(1, 4, figsize=(19, 4.8), layout="constrained")
+    fig.suptitle("GEMM | FP64, FP32, TF32 and FP16 (FP32 accumulation)", fontsize=16, fontweight="bold")
     data = results[(results.operation == "GEMM") & (results.scope == "compute")] if not results.empty else results
     if data.empty:
         for ax in axes:
             _empty(ax, "No GEMM measurements")
         return fig
-    for (backend, dtype), group in data.groupby(["backend", "dtype"]):
+    data = data.copy()
+    if "mode" not in data:
+        data["mode"] = data.dtype.map({"float32": "FP32", "float64": "FP64"})
+    for (backend, mode), group in data.groupby(["backend", "mode"]):
         group = group.sort_values("n")
         x = group.n.to_numpy()
-        color = COLORS[(backend, dtype)]
-        label = f"{backend} {dtype}"
+        color = _gemm_color(backend, mode)
+        label = f"{backend} {mode}"
         low = (group.median_s - group.q25_s).to_numpy() * 1000
         high = (group.q75_s - group.median_s).to_numpy() * 1000
         axes[0].errorbar(x, group.median_s * 1000, yerr=[low, high],
                          marker="o", capsize=3, color=color, label=label)
         axes[1].plot(x, group.gflops, "o-", color=color, label=label)
+        axes[3].plot(x, np.maximum(group.relative_error, 1e-16), "o-", color=color, label=label)
     axes[0].set(ylabel="Median time (ms), whiskers = IQR", yscale="log", title="Operation time")
     axes[1].set(ylabel="GFLOP/s", title="Achieved throughput")
     for ax in axes[:2]:
@@ -55,17 +66,22 @@ def plot_gemm(results):
     if ratios.empty:
         _empty(axes[2], "GPU speedup unavailable\nRequires matched CPU and GPU measurements")
     else:
-        for (dtype, scope), group in ratios.groupby(["dtype", "scope"]):
+        for (mode, scope), group in ratios.groupby(["mode", "scope"]):
             group = group.sort_values("n")
             axes[2].plot(group.n, group.speedup, marker="o",
                          linestyle="-" if scope == "compute" else "--",
-                         color=COLORS[("GPU", dtype)], label=f"{dtype} {scope}")
+                         color=MODE_COLORS[mode], label=f"{mode} {scope}")
         axes[2].axhline(1, color="#52677f", linestyle=":", label="Equal time")
         axes[2].set(xlabel="Square matrix size n", ylabel="CPU time / GPU time",
                     xscale="log", yscale="log")
         axes[2].legend(fontsize=8)
         axes[2].grid(alpha=.2)
     axes[2].set_title("GPU speedup (>1 means faster)")
+    axes[2].set_ylabel("CPU baseline / GPU time\nTF32 and FP16 use CPU FP32")
+    axes[3].set(title="Sampled error vs common FP64 inputs", xlabel="Square matrix size n",
+                ylabel="Relative norm error (floor 1e-16)", xscale="log", yscale="log")
+    axes[3].grid(alpha=.2)
+    axes[3].legend(fontsize=8)
     return fig
 
 
@@ -129,7 +145,8 @@ def plot_transfers(samples):
             _empty(ax, "No GPU transfer measurements\nRun on NVIDIA CUDA with transfers enabled")
             ax.set_title(operation)
             continue
-        means = data.groupby(["case", "dtype", "scope"], sort=False).seconds.mean().unstack("scope") * 1000
+        label_column = "mode" if operation == "GEMM" and "mode" in data else "dtype"
+        means = data.groupby(["case", label_column, "scope"], sort=False).seconds.mean().unstack("scope") * 1000
         positions = np.arange(len(means))
         bottom = np.zeros(len(means))
         for phase, color in (("upload", "#52677f"), ("compute_wall", "#4f9900"),

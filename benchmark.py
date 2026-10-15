@@ -6,6 +6,7 @@ library-operation level, not a standalone, profiler-isolated CUDA kernel.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import importlib.metadata
 import inspect
@@ -24,6 +25,18 @@ from scipy import io, sparse
 from threadpoolctl import threadpool_info, threadpool_limits
 
 
+GEMM_MODES = {
+    "FP64": dict(input_dtype="float64", output_dtype="float64", accumulation_dtype="float64",
+                 compute_type="CUBLAS_COMPUTE_64F", tolerance=1e-12),
+    "FP32": dict(input_dtype="float32", output_dtype="float32", accumulation_dtype="float32",
+                 compute_type="CUBLAS_COMPUTE_32F_PEDANTIC", tolerance=1e-5),
+    "TF32": dict(input_dtype="float32", output_dtype="float32", accumulation_dtype="float32",
+                 compute_type="CUBLAS_COMPUTE_32F_FAST_TF32", tolerance=5e-3),
+    "FP16": dict(input_dtype="float16", output_dtype="float32", accumulation_dtype="float32",
+                 compute_type="CUBLAS_COMPUTE_32F", tolerance=5e-3),
+}
+
+
 @dataclass
 class Config:
     gemm_sizes: tuple[int, ...] = (256, 512, 1024, 2048)
@@ -31,6 +44,7 @@ class Config:
     sparse_sizes: tuple[int, ...] = (1000, 10000, 100000)
     nnz_per_row: int = 16
     dtypes: tuple[str, ...] = ("float32", "float64")
+    gemm_modes: tuple[str, ...] = ("FP64", "FP32", "TF32", "FP16")
     warmup: int = 3
     repeats: int = 7
     gpu_gemm_inner: int = 5
@@ -51,9 +65,13 @@ class Config:
             if len(set(values)) != len(values):
                 raise ValueError(f"{field} must not contain duplicates")
         if not self.dtypes or any(d not in ("float32", "float64") for d in self.dtypes):
-            raise ValueError("This baseline supports float32 and float64 only")
+            raise ValueError("SpMV supports float32 and float64 only; use gemm_modes for GEMM")
         if len(set(self.dtypes)) != len(self.dtypes):
             raise ValueError("dtypes must not contain duplicates")
+        if not self.gemm_modes or any(m not in GEMM_MODES for m in self.gemm_modes):
+            raise ValueError("gemm_modes must contain FP64, FP32, TF32, or FP16")
+        if len(set(self.gemm_modes)) != len(self.gemm_modes):
+            raise ValueError("gemm_modes must not contain duplicates")
         for field in ("repeats", "gpu_gemm_inner", "spmv_inner", "cpu_threads",
                       "nnz_per_row", "max_host_bytes"):
             if not isinstance(getattr(self, field), int) or getattr(self, field) <= 0:
@@ -71,6 +89,8 @@ class GPU:
     cusparse: object = None
     reason: str = ""
     name: str = ""
+    cublas: object = None
+    compute_capability: tuple[int, int] = (0, 0)
 
     @property
     def available(self):
@@ -78,7 +98,7 @@ class GPU:
 
 
 def detect_gpu(enabled: bool = True) -> GPU:
-    """Set baseline policy BEFORE importing CuPy; require restart if imported.
+    """Set library policy BEFORE importing CuPy; require restart if imported.
 
     Disabling CuPy accelerators avoids alternate GEMM backends. SpMV below calls
     the generic cuSPARSE wrapper explicitly rather than relying on CSR dispatch.
@@ -89,12 +109,12 @@ def detect_gpu(enabled: bool = True) -> GPU:
         raise RuntimeError("CuPy is already imported. Restart the kernel and Run All "
                            "so baseline settings take effect before CUDA initialization.")
     os.environ["CUPY_TF32"] = "0"
-    os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
     os.environ["CUPY_ACCELERATORS"] = ""
     try:
         import cupy as cp
         import cupyx.scipy.sparse as gpu_sparse
         from cupyx import cusparse
+        from cupy_backends.cuda.libs import cublas
     except ImportError as exc:
         return GPU(reason=f"CuPy unavailable: {exc}")
     try:
@@ -108,7 +128,8 @@ def detect_gpu(enabled: bool = True) -> GPU:
         props = cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)
         name = props["name"]
         name = name.decode() if isinstance(name, bytes) else str(name)
-        return GPU(cp=cp, sparse=gpu_sparse, cusparse=cusparse, name=name)
+        return GPU(cp=cp, sparse=gpu_sparse, cusparse=cusparse, cublas=cublas, name=name,
+                   compute_capability=(int(props["major"]), int(props["minor"])))
     except Exception as exc:
         # Only device discovery degrades gracefully. Experiment errors must surface.
         return GPU(reason=f"CUDA initialization failed: {type(exc).__name__}: {exc}")
@@ -147,6 +168,7 @@ def environment(gpu: GPU, cfg: Config) -> dict:
         "requested_blas_threads": cfg.cpu_threads,
         "gpu_available": gpu.available, "gpu_skip_reason": gpu.reason,
         "config": asdict(cfg),
+        "gemm_mode_specs": GEMM_MODES,
         "timing_scope": {
             "cpu": "perf_counter; BLAS threads limited; SpMV output allocation included",
             "gpu": "CUDA Events on current stream; preallocated output; warm operation calls",
@@ -165,7 +187,10 @@ def environment(gpu: GPU, cfg: Config) -> dict:
             "cupy": cp.__version__, "cuda_runtime": cp.cuda.runtime.runtimeGetVersion(),
             "cuda_driver": cp.cuda.runtime.driverGetVersion(),
             "spmv_backend": "cupyx.cusparse.spmv (generic cuSPARSE)",
-            "fp32_mode": "TF32 disabled before import; CuPy default FP32 GEMM",
+            "compute_capability": gpu.compute_capability,
+            "gemm_backend": "cuBLAS gemmEx; explicit compute type; dedicated handle",
+            "gemm_mode_support": {mode: gemm_skip_reason(gpu, mode) or "available"
+                                  for mode in cfg.gemm_modes},
         }
     return result
 
@@ -243,30 +268,123 @@ def check_error(actual, expected, dtype) -> float:
     return error
 
 
+def check_gemm_error(actual, expected, mode) -> float:
+    error = relative_error(actual, expected)
+    tolerance = GEMM_MODES[mode]["tolerance"]
+    if error > tolerance:
+        raise AssertionError(f"{mode} correctness failed: relative error {error:.3g} > {tolerance}")
+    return error
+
+
+def gemm_skip_reason(gpu: GPU, mode: str) -> str:
+    """Do not label CPU emulation or unsupported hardware as native GPU modes."""
+    if mode not in GEMM_MODES:
+        raise ValueError(f"Unknown GEMM mode: {mode}")
+    if not gpu.available:
+        return gpu.reason or "No NVIDIA CUDA GPU available"
+    capability = gpu.compute_capability[0]*10 + gpu.compute_capability[1]
+    if mode == "TF32":
+        if capability < 80:
+            return "TF32 requires NVIDIA compute capability 8.0+ (Ampere or newer)"
+        if os.environ.get("NVIDIA_TF32_OVERRIDE") == "0":
+            return "NVIDIA_TF32_OVERRIDE=0 disables TF32; unset it and restart the kernel"
+    if mode == "FP16" and capability < 53:
+        return "This FP16 baseline requires NVIDIA compute capability 5.3+"
+    if gpu.cublas is None or not hasattr(gpu.cublas, GEMM_MODES[mode]["compute_type"]):
+        return "Required cuBLAS compute type is unavailable in this CuPy build"
+    return ""
+
+
+@contextmanager
+def gemm_operation(gpu, a, b, c, mode):
+    """Yield a cuBLAS GEMM callable with column-major storage and owned scalars.
+
+    Handle creation/configuration is outside timing. A private handle avoids leaking
+    pointer/math mode changes into other CuPy operations. gemmEx binds the current
+    CuPy stream on every call, matching the events used by time_gpu.
+    """
+    spec = GEMM_MODES[mode]
+    reason = gemm_skip_reason(gpu, mode)
+    if reason:
+        raise ValueError(reason)
+    if any(len(array.shape) != 2 or not array.flags.f_contiguous for array in (a, b, c)):
+        raise ValueError("cuBLAS GEMM buffers must be two-dimensional and Fortran-contiguous")
+    m, k = a.shape
+    kb, n = b.shape
+    if kb != k or c.shape != (m, n) or min(m, n, k) <= 0:
+        raise ValueError("Incompatible GEMM buffer shapes")
+    if (a.dtype != np.dtype(spec["input_dtype"]) or b.dtype != a.dtype or
+            c.dtype != np.dtype(spec["output_dtype"])):
+        raise ValueError("GEMM buffer dtypes do not match the selected mode")
+    cb = gpu.cublas
+    runtime = gpu.cp.cuda.runtime
+    input_type = getattr(runtime, {"float16": "CUDA_R_16F", "float32": "CUDA_R_32F",
+                                   "float64": "CUDA_R_64F"}[spec["input_dtype"]])
+    output_type = getattr(runtime, "CUDA_R_64F" if mode == "FP64" else "CUDA_R_32F")
+    compute_type = getattr(cb, spec["compute_type"])
+    alpha = np.array(1, dtype=spec["accumulation_dtype"])
+    beta = np.array(0, dtype=spec["accumulation_dtype"])
+    handle = cb.create()
+    try:
+        cb.setPointerMode(handle, cb.CUBLAS_POINTER_MODE_HOST)
+        cb.setMathMode(handle, cb.CUBLAS_DEFAULT_MATH)
+        def call():
+            cb.gemmEx(handle, cb.CUBLAS_OP_N, cb.CUBLAS_OP_N, m, n, k,
+                      alpha.ctypes.data, a.data.ptr, input_type, m,
+                      b.data.ptr, input_type, k, beta.ctypes.data,
+                      c.data.ptr, output_type, m, compute_type, cb.CUBLAS_GEMM_DEFAULT)
+        yield call
+    finally:
+        try:
+            gpu.cp.cuda.get_current_stream().synchronize()
+        finally:
+            cb.destroy(handle)
+
+
 def correctness_demo(gpu: GPU, cfg: Config) -> pd.DataFrame:
     records = []
     rng = np.random.default_rng(cfg.seed)
     with threadpool_limits(limits=cfg.cpu_threads, user_api="blas"):
+        base_a, base_b = rng.standard_normal((64, 64)), rng.standard_normal((64, 64))
+        reference = base_a @ base_b
+        for mode in cfg.gemm_modes:
+            spec = GEMM_MODES[mode]
+            a = np.asfortranarray(base_a, dtype=spec["input_dtype"])
+            b = np.asfortranarray(base_b, dtype=spec["input_dtype"])
+            common = dict(operation="GEMM", mode=mode, dtype=spec["input_dtype"],
+                          output_dtype=spec["output_dtype"])
+            if mode in ("FP32", "FP64"):
+                records.append(dict(common, backend="CPU", status="passed", passed=True,
+                                    relative_error=check_gemm_error(a @ b, reference, mode)))
+            reason = gemm_skip_reason(gpu, mode)
+            if reason:
+                records.append(dict(common, backend="GPU", status="skipped", passed=None,
+                                    relative_error=np.nan, reason=reason))
+            else:
+                cp = gpu.cp
+                da, db = cp.asarray(a, order="F"), cp.asarray(b, order="F")
+                dc = cp.empty((64, 64), dtype=spec["output_dtype"], order="F")
+                with gemm_operation(gpu, da, db, dc, mode) as fn:
+                    fn()
+                    error = check_gemm_error(cp.asnumpy(dc), reference, mode)
+                records.append(dict(common, backend="GPU", status="passed", passed=True,
+                                    relative_error=error, compute_type=spec["compute_type"]))
         for dtype in cfg.dtypes:
-            a = rng.standard_normal((64, 64)).astype(dtype)
-            b = rng.standard_normal((64, 64)).astype(dtype)
-            reference = a.astype("float64") @ b.astype("float64")
-            records.append(dict(operation="GEMM", backend="CPU", dtype=dtype,
-                                relative_error=check_error(a @ b, reference, dtype)))
             matrix = sparse.csr_matrix([[4, 0, 1], [0, 3, 0], [1, 0, 2]], dtype=dtype)
             x = np.array([1, 2, 3], dtype=dtype)
             expected = np.array([7, 6, 7])
             records.append(dict(operation="SpMV", backend="CPU", dtype=dtype,
+                                mode="FP32" if dtype == "float32" else "FP64",
+                                status="passed", passed=True,
                                 relative_error=check_error(matrix @ x, expected, dtype)))
             if gpu.available:
                 cp = gpu.cp
-                result = cp.asnumpy(cp.asarray(a) @ cp.asarray(b))
-                records.append(dict(operation="GEMM", backend="GPU", dtype=dtype,
-                                    relative_error=check_error(result, reference, dtype)))
                 result = gpu.cusparse.spmv(gpu.sparse.csr_matrix(matrix), cp.asarray(x))
                 records.append(dict(operation="SpMV", backend="GPU", dtype=dtype,
+                                    mode="FP32" if dtype == "float32" else "FP64",
+                                    status="passed", passed=True,
                                     relative_error=check_error(cp.asnumpy(result), expected, dtype)))
-    return pd.DataFrame(records).assign(passed=True)
+    return pd.DataFrame(records)
 
 
 def make_csr(n: int, nnz_per_row: int, dtype: str, seed: int):
@@ -341,67 +459,87 @@ def _release_gpu(gpu):
         gpu.cp.get_default_memory_pool().free_all_blocks()
 
 
-def _gemm_case(n, dtype, gpu, cfg, rows, samples, skips):
+def _gemm_case(n, mode, gpu, cfg, rows, samples, skips):
     case = f"gemm_{n}"
-    itemsize = np.dtype(dtype).itemsize
+    spec = GEMM_MODES[mode]
+    dtype = spec["input_dtype"]
+    skip_info = dict(case=case, mode=mode, dtype=dtype)
     # Includes random-generation, CPU output, host download, and validation headroom.
-    if 8 * n * n * itemsize > cfg.max_host_bytes:
-        skips.append(dict(case=case, dtype=dtype, backend="ALL", reason="host memory budget"))
+    if 8 * n * n * 8 > cfg.max_host_bytes:
+        skips.append(dict(skip_info, backend="ALL", reason="host memory budget"))
         return
+    reason = gemm_skip_reason(gpu, mode)
+    if reason:
+        skips.append(dict(skip_info, backend="GPU", reason=reason))
+        if mode in ("TF32", "FP16"):
+            return
     rng = np.random.default_rng(cfg.seed + n)
     # Match the underlying random inputs across precisions before rounding.
-    a = rng.standard_normal((n, n)).astype(dtype, copy=False)
-    b = rng.standard_normal((n, n)).astype(dtype, copy=False)
+    base_a, base_b = rng.standard_normal((n, n)), rng.standard_normal((n, n))
     ix = np.linspace(0, n - 1, min(16, n), dtype=int)
-    reference = a[ix, :].astype("float64") @ b[:, ix].astype("float64")
+    reference = base_a[ix, :] @ base_b[:, ix]
+    a, b = np.asfortranarray(base_a, dtype=dtype), np.asfortranarray(base_b, dtype=dtype)
+    del base_a, base_b
+    rounded_reference = a[ix, :].astype("float64") @ b[:, ix].astype("float64")
     common = dict(operation="GEMM", case=case, source="synthetic", n=n, m=n,
                   nnz=n*n, dtype=dtype, flops=2*n**3, estimated_bytes=0,
-                  validation_scope="up to 16x16 sampled output entries vs FP64")
-    if n <= cfg.cpu_max_n:
+                  mode=mode, input_dtype=dtype, output_dtype=spec["output_dtype"],
+                  accumulation_dtype=spec["accumulation_dtype"], compute_type=spec["compute_type"],
+                  validation_tolerance=spec["tolerance"],
+                  input_quantization_error=relative_error(rounded_reference, reference),
+                  validation_scope="up to 16x16 sampled entries vs common unrounded FP64 inputs")
+    if mode in ("FP32", "FP64") and n <= cfg.cpu_max_n:
         c = np.empty_like(a)
         fn = lambda: np.matmul(a, b, out=c)
         fn()
-        error = check_error(c[np.ix_(ix, ix)], reference, dtype)
-        _record(rows, samples, times=time_cpu(fn, cfg), **common, backend="CPU",
-                scope="compute", relative_error=error)
+        actual = c[np.ix_(ix, ix)]
+        error = check_gemm_error(actual, reference, mode)
+        cpu_common = dict(common, compute_type="NumPy BLAS")
+        _record(rows, samples, times=time_cpu(fn, cfg), **cpu_common, backend="CPU",
+                scope="compute", relative_error=error,
+                arithmetic_error=relative_error(actual, rounded_reference), gemm_backend="NumPy matmul")
         del fn, c
-    else:
-        skips.append(dict(case=case, dtype=dtype, backend="CPU", reason="cpu_max_n"))
-    if not gpu.available:
+    elif mode in ("FP32", "FP64"):
+        skips.append(dict(skip_info, backend="CPU", reason="cpu_max_n"))
+    if reason:
         return
-    if not _gpu_fits(gpu, cfg, 6*n*n*itemsize):
-        skips.append(dict(case=case, dtype=dtype, backend="GPU", reason="GPU memory budget"))
+    input_bytes = np.dtype(dtype).itemsize
+    output_bytes = np.dtype(spec["output_dtype"]).itemsize
+    if not _gpu_fits(gpu, cfg, 2*n*n*(2*input_bytes + output_bytes)):
+        skips.append(dict(skip_info, backend="GPU", reason="GPU memory budget"))
         return
     cp = gpu.cp
-    da, db = cp.asarray(a), cp.asarray(b)
-    dc = cp.empty_like(da)
-    fn = lambda: cp.matmul(da, db, out=dc)
-    fn()
-    actual = cp.asnumpy(dc[cp.ix_(cp.asarray(ix), cp.asarray(ix))])
-    error = check_error(actual, reference, dtype)
-    _record(rows, samples, times=time_gpu(fn, gpu, cfg, cfg.gpu_gemm_inner),
-            inner=cfg.gpu_gemm_inner, **common, backend="GPU", scope="compute",
-            relative_error=error)
-    if cfg.measure_transfers:
-        host_out = np.empty_like(a)
-        def upload():
-            da.set(a)
-            db.set(b)
-        phases = time_transfer_pipeline(upload, fn, lambda: dc.get(out=host_out), gpu, cfg)
-        check_error(host_out[np.ix_(ix, ix)], reference, dtype)
-        for scope, times in phases.items():
-            _record(rows, samples, times=times, **common, backend="GPU", scope=scope,
-                    relative_error=error)
+    da, db = cp.asarray(a, order="F"), cp.asarray(b, order="F")
+    dc = cp.empty((n, n), dtype=spec["output_dtype"], order="F")
+    with gemm_operation(gpu, da, db, dc, mode) as fn:
+        fn()
+        actual = cp.asnumpy(dc[cp.ix_(cp.asarray(ix), cp.asarray(ix))])
+        error = check_gemm_error(actual, reference, mode)
+        gpu_common = dict(common, arithmetic_error=relative_error(actual, rounded_reference),
+                          gemm_backend="cuBLAS gemmEx")
+        _record(rows, samples, times=time_gpu(fn, gpu, cfg, cfg.gpu_gemm_inner),
+                inner=cfg.gpu_gemm_inner, **gpu_common, backend="GPU", scope="compute",
+                relative_error=error)
+        if cfg.measure_transfers:
+            host_out = np.empty((n, n), dtype=spec["output_dtype"], order="F")
+            def upload():
+                da.set(a)
+                db.set(b)
+            phases = time_transfer_pipeline(upload, fn, lambda: dc.get(out=host_out), gpu, cfg)
+            check_gemm_error(host_out[np.ix_(ix, ix)], reference, mode)
+            for scope, times in phases.items():
+                _record(rows, samples, times=times, **gpu_common, backend="GPU", scope=scope,
+                        relative_error=error)
 
 
 def run_gemm(cfg: Config, gpu: GPU):
     rows, samples, skips = [], [], []
     with threadpool_limits(limits=cfg.cpu_threads, user_api="blas"):
-        for dtype in cfg.dtypes:
+        for mode in cfg.gemm_modes:
             for n in sorted(cfg.gemm_sizes):
-                print(f"GEMM {dtype} n={n}", flush=True)
+                print(f"GEMM {mode} n={n}", flush=True)
                 try:
-                    _gemm_case(n, dtype, gpu, cfg, rows, samples, skips)
+                    _gemm_case(n, mode, gpu, cfg, rows, samples, skips)
                 finally:
                     _release_gpu(gpu)
     return pd.DataFrame(rows), pd.DataFrame(samples), pd.DataFrame(skips)
@@ -413,6 +551,7 @@ def _spmv_case(matrix, case, source, gpu, cfg, rows, samples, skips):
     estimated_bytes = estimated_spmv_bytes(matrix)
     common = dict(operation="SpMV", case=case, source=source, m=m, n=n,
                   nnz=matrix.nnz, dtype=dtype, flops=2*matrix.nnz,
+                  mode="FP32" if dtype == "float32" else "FP64",
                   estimated_bytes=estimated_bytes,
                   validation_scope="full vector vs CPU FP64 reference")
     x = np.random.default_rng(cfg.seed).standard_normal(n).astype(dtype)
@@ -488,7 +627,12 @@ def run_spmv(cfg: Config, gpu: GPU, mtx_paths=()):
 def speedups(results: pd.DataFrame) -> pd.DataFrame:
     if results.empty:
         return pd.DataFrame()
-    keys = ["operation", "case", "dtype", "m", "n", "nnz"]
+    results = results.copy()
+    # Old CSVs remain readable; new rows distinguish physical dtype from math mode.
+    if "mode" not in results:
+        results["mode"] = results.dtype.map({"float32": "FP32", "float64": "FP64"})
+    results["cpu_reference_mode"] = results["mode"].replace({"TF32": "FP32", "FP16": "FP32"})
+    keys = ["operation", "case", "cpu_reference_mode", "m", "n", "nnz"]
     cpu = results[(results.backend == "CPU") & (results.scope == "compute")]
     cpu = cpu[keys + ["median_s"]].rename(columns={"median_s": "cpu_s"})
     gpu = results[(results.backend == "GPU") & results.scope.isin(["compute", "end_to_end"])]
@@ -501,11 +645,11 @@ def export_results(folder, cfg, env, results, samples, skips, checks):
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=False)
     schemas = {
-        "results": ["operation", "case", "dtype", "backend", "scope", "median_s", "gflops"],
-        "samples": ["operation", "case", "dtype", "backend", "scope", "trial", "seconds"],
-        "skipped": ["case", "dtype", "backend", "reason"],
-        "correctness": ["operation", "backend", "dtype", "relative_error", "passed"],
-        "speedups": ["operation", "case", "dtype", "scope", "speedup"],
+        "results": ["operation", "case", "mode", "dtype", "backend", "scope", "median_s", "gflops"],
+        "samples": ["operation", "case", "mode", "dtype", "backend", "scope", "trial", "seconds"],
+        "skipped": ["case", "mode", "dtype", "backend", "reason"],
+        "correctness": ["operation", "backend", "mode", "dtype", "status", "relative_error", "passed"],
+        "speedups": ["operation", "case", "mode", "cpu_reference_mode", "dtype", "scope", "speedup"],
     }
     for name, frame in (("results", results), ("samples", samples),
                         ("skipped", skips), ("correctness", checks),

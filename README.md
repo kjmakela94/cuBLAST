@@ -10,16 +10,44 @@ the kernel and run all cells to collect your own results.
 
 ## Features
 
-- FP32 / FP64 square GEMM: size sweeps, elapsed time, GFLOP/s, and CPU/GPU speedups for matching cases.
+- FP64 / FP32 / TF32 / FP16 square GEMM: size sweeps, elapsed time, GFLOP/s,
+  numerical error, and speedups against documented CPU baselines.
 - CSR SpMV: three default synthetic sizes and optional real Matrix Market files (`.mtx` / `.mtx.gz`).
 - CuPy GPU operations, with SpMV explicitly using generic cuSPARSE through `cupyx.cusparse.spmv`.
 - Upload / compute / download breakdowns, warm-up, GPU synchronization, repeated measurements, medians, and IQR.
 - Raw measurements as CSV, environment metadata as JSON, and figures as PNG.
 - Automatic CPU-only execution when CUDA is unavailable, without simulated GPU results.
 
-This baseline does not yet include TF32 / FP16, comparisons with theoretical GPU
-peak performance, or conjugate gradient (CG). Synthetic matrices demonstrate the
+This baseline does not yet include comparisons with theoretical GPU peak performance
+or conjugate gradient (CG). Synthetic matrices demonstrate the
 workflow; the formal Task B still requires three real matrices from SuiteSparse.
+
+### GEMM modes
+
+GPU GEMM calls `cublasGemmEx` through CuPy's low-level binding with an explicit
+compute type for each mode. Inputs and outputs are column-major and preallocated.
+Each operation owns a dedicated cuBLAS handle, so pointer/math settings do not
+affect other CuPy operations.
+
+| Mode | Input storage | Accumulation / output | cuBLAS compute type |
+| --- | --- | --- | --- |
+| FP64 | FP64 | FP64 / FP64 | `CUBLAS_COMPUTE_64F` |
+| FP32 | FP32 | FP32 / FP32 | `CUBLAS_COMPUTE_32F_PEDANTIC` |
+| TF32 | FP32 | FP32 / FP32 | `CUBLAS_COMPUTE_32F_FAST_TF32` |
+| FP16 | FP16 | FP32 / FP32 | `CUBLAS_COMPUTE_32F` |
+
+FP16 here is a mixed-precision GEMM with half-precision inputs and single-precision
+accumulation/output. TF32 is a compute mode, not a NumPy storage dtype. The benchmark
+requests TF32 on compute capability 8.0+ GPUs; older GPUs record an explicit skip.
+FP16 requires compute capability 5.3+ in this baseline. A requested mode does not
+prove which kernel or Tensor Core instructions the library selected; use a profiler
+to verify Tensor Core utilization. See the
+[NVIDIA cuBLAS reference](https://docs.nvidia.com/cuda/cublas/index.html).
+
+CPU timings cover native FP64 and FP32 only. TF32/FP16 GPU speedups use **CPU FP32**
+as their baseline, explicitly recorded in `cpu_reference_mode`; they do not imply
+identical arithmetic precision. Select FP32 in `gemm_modes` to collect that CPU
+baseline. With no GPU, TF32/FP16 are skipped rather than emulated or mislabeled.
 
 ## Run locally or on a course server
 
@@ -84,7 +112,8 @@ Edit the configuration in Section 2 of the notebook:
 | `cpu_max_n` | quick: 1024; larger cases skip CPU timing and have no inferred speedup |
 | `sparse_sizes` | quick: 1000, 10000, 100000 |
 | `nnz_per_row` | 16; merging duplicate random columns may slightly reduce the actual nnz |
-| `dtypes` | float32, float64 |
+| `dtypes` | SpMV storage types: float32, float64 |
+| `gemm_modes` | FP64, FP32, TF32, FP16; independent of SpMV dtypes |
 | `warmup` / `repeats` | 3 warm-up calls / 7 measurement samples |
 | `gpu_gemm_inner` | Average 5 GEMM calls within each CUDA Event sample |
 | `spmv_inner` | Average 20 SpMV calls within each sample |
@@ -146,16 +175,21 @@ isolated CUDA kernel execution times.
 - Effective bandwidth: `(CSR array bytes + x bytes + y bytes) / compute_seconds / 1e9`.
   This assumes one access to each stored input/output and is not measured DRAM traffic.
   Repeated calls may benefit from caching.
-- Speedup: matching cases and precisions only, using `CPU compute / GPU compute`
-  or `CPU compute / GPU end_to_end`.
+- Speedup: matching matrix sizes and documented CPU reference modes, using
+  `CPU compute / GPU compute` or `CPU compute / GPU end_to_end`. TF32/FP16 use
+  CPU FP32; FP64 and FP32 use the corresponding CPU precision.
 - GFLOP/s is populated only for compute / end_to_end rows. Effective GB/s is populated
   only for SpMV compute rows.
 - Tables report medians; GEMM time error bars show the interquartile range (IQR).
   Transfer stacks use phase means from the same trials, rather than adding phase medians.
 
-Before importing CuPy, the baseline sets `CUPY_TF32=0` and
-`NVIDIA_TF32_OVERRIDE=0`, and disables optional accelerators. This version does not
-claim to benchmark TF32. Do not import CuPy before the environment-check cell.
+Before importing CuPy, the baseline sets `CUPY_TF32=0` and disables optional
+accelerators for unrelated high-level calls. GEMM uses explicit per-call compute
+types, so its TF32 mode does not rely on that global CuPy switch. The benchmark
+does not force `NVIDIA_TF32_OVERRIDE=0`: if the environment already sets it to `0`,
+TF32 is explicitly skipped. Unset that variable and restart the kernel to enable
+TF32. FP32 remains pedantic FP32 independently. Do not import CuPy before the
+environment-check cell.
 
 ## Data and figures
 
@@ -164,19 +198,28 @@ Each run creates `results/<UTC_timestamp>/`:
 ```text
 environment.json  # Hardware, software, BLAS threads, parameters, and timing scope
 correctness.csv   # Complete correctness checks on small examples
-results.csv       # Medians, IQR, throughput, and sampled/full validation errors
+results.csv       # Medians, IQR, throughput, math modes, storage/compute types, and errors
 samples.csv       # Seconds per trial; batched measurements already divided by inner
 skipped.csv       # Cases skipped because of memory budgets or CPU size limits
-speedups.csv      # Comparisons with both CPU and GPU measurements
+speedups.csv      # Comparisons with both CPU and GPU measurements; named CPU reference
 gemm.png
 spmv.png
 transfers.png
 ```
 
-For each GEMM size, up to 16x16 sampled output entries are checked against a CPU
-FP64 reference. SpMV validates the complete output vector. Relative norm error
-thresholds are 1e-5 for FP32 and 1e-12 for FP64; a failed check stops execution.
-The small GEMM example is also validated in full.
+All GEMM modes start from identical seeded FP64 input values before storage
+conversion. Up to 16x16 output entries per size are checked against a common CPU
+FP64 reference computed from those original values, so `relative_error` includes
+input quantization. Thresholds are 1e-12 for FP64, 1e-5 for FP32, and 5e-3 for
+TF32/FP16 on these random test inputs. The tolerances are experiment checks, not
+universal error guarantees for arbitrary matrices.
+
+GEMM also records `arithmetic_error` against an FP64 product of the stored inputs
+and `input_quantization_error` between the two FP64 references. These separate
+storage rounding from arithmetic effects; the errors need not add linearly.
+Small GEMM correctness checks cover complete outputs of every available mode;
+unsupported modes have `status=skipped`, not a passing result. SpMV still validates
+the complete vector with its original FP32/FP64 tolerances. Failed checks stop execution.
 
 Results, environments, and datasets are ignored by Git by default. Select the
 figures and data you need when preparing a report.
@@ -195,7 +238,9 @@ RUN_CUDA_TESTS=1 python -m pytest -q
 ```
 
 Tests cover numerical correctness, Matrix Market loading, sample statistics,
-transfer-phase bookkeeping, exports, and figures. They do not enforce fixed speed
+transfer-phase bookkeeping, exports, figures, mode eligibility, CPU reference joins,
+and raw cuBLAS argument/layout/scalar contracts. CPU contract tests do not execute
+GPU arithmetic or produce GPU performance measurements. Tests do not enforce fixed speed
 thresholds. Skipped GPU tests are not reported as validated on machines without a GPU.
 
 ## References
