@@ -1,5 +1,5 @@
 # downloaded inputs and run outputs
-matrices/
+matrices/**/*.mtx
 *.tar.gz
 hackathon_out/
 hackathon_results.zip
