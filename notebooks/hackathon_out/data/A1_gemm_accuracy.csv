@@ -1,0 +1,5 @@
+precision,backend,rel_error,note
+FP64,cublasGemmEx,0.0,float64 → FP64 accumulate
+FP32,cublasGemmEx,2.649393594808103e-07,float32 → FP32 accumulate (CUDA cores)
+TF32,cublasGemmEx,0.00029437879807012066,"float32 in/out, TF32 tensor-core multiply"
+FP16,cublasGemmEx,0.00036021864344370336,float16 in/out → FP32 accumulate

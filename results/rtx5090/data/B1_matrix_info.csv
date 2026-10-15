@@ -1,0 +1,4 @@
+matrix,source,n,nnz,nnz_per_row,max_row,csr_MB,symmetric,read_s,note
+cant,SYNTHETIC stand-in,62451,4058259,64.98309074314263,65,46.68132400512695,True,0.0,FEM cantilever · banded · ~64 nnz/row
+ecology2,SYNTHETIC stand-in,1000000,4996000,4.996,5,60.989383697509766,True,0.0,5-point grid stencil · ~5 nnz/row
+webbase-1M,SYNTHETIC stand-in,1000005,1664883,1.664874675626622,315,22.867794036865234,False,0.0,web graph · unsymmetric · power-law rows
